@@ -19,6 +19,7 @@ def llm_rewrite(
     temperature: float = 1.3,
     extra_headers: dict | None = None,
     provider: str | None = None,
+    timeout: int = 120,
 ) -> str:
     """Rewrite text into target language with humanization.
 
@@ -31,6 +32,7 @@ def llm_rewrite(
         history: Optional dict with 'input' and 'output' from previous round.
         temperature: Sampling temperature (1.3 recommended for humanization).
         extra_headers: Optional extra HTTP headers (e.g. OpenRouter attribution).
+        timeout: Request timeout in seconds; local models may need longer to load.
 
     Returns:
         Humanized text in target language.
@@ -59,6 +61,7 @@ def llm_rewrite(
         temperature=temperature,
         extra_headers=extra_headers,
         provider=provider,
+        timeout=timeout,
     )
 
 

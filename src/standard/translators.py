@@ -1,9 +1,77 @@
-"""Translation engines: Google Translate and Niutrans."""
+"""Translation engines: Google Translate, Niutrans, and local Ollama models."""
 
 import httpx
 
 from .retry import retry_with_backoff
+from .llm_client import OLLAMA_BASE_URL, chat_completions
 from deep_translator import GoogleTranslator
+
+LANGUAGE_NAMES = {
+    "en": "English", "zh": "Chinese", "ja": "Japanese", "ko": "Korean",
+    "fr": "French", "de": "German", "es": "Spanish", "pt": "Portuguese",
+    "ru": "Russian", "ar": "Arabic", "it": "Italian", "nl": "Dutch",
+    "fi": "Finnish",
+}
+
+
+def ollama_translate(
+    text: str,
+    source: str,
+    target: str,
+    *,
+    model: str = "translategemma:27b",
+    base_url: str = OLLAMA_BASE_URL,
+    timeout: int = 600,
+    max_chunk_chars: int = 1000,
+) -> str:
+    """Translate locally using one user message per bounded text chunk.
+
+    TranslateGemma is a translation model, so it receives translation-only
+    instructions without rewrite history or a separate system message.
+    """
+    if source not in LANGUAGE_NAMES or target not in LANGUAGE_NAMES:
+        raise ValueError(f"Unsupported local translation language: {source!r} -> {target!r}")
+    if isinstance(max_chunk_chars, bool) or not isinstance(max_chunk_chars, int) or max_chunk_chars < 1:
+        raise ValueError("translation.max_chunk_chars must be a positive integer.")
+    if not text.strip():
+        return text
+
+    source_name, target_name = LANGUAGE_NAMES[source], LANGUAGE_NAMES[target]
+    translations = []
+    for chunk in _split_local_text(text, max_chunk_chars):
+        if not chunk.strip():
+            translations.append(chunk)
+            continue
+        prompt = (
+            f"Translate the passage from {source_name} ({source}) into "
+            f"{target_name} ({target}).\n"
+            "Keep its meaning, names, numbers, and paragraph structure. "
+            "Return the translated passage alone, without commentary:\n\n\n"
+            f"{chunk}"
+        )
+        translations.append(chat_completions(
+            [{"role": "user", "content": prompt}],
+            api_key="", base_url=base_url, model=model,
+            temperature=0.0, timeout=timeout, provider="ollama",
+        ))
+    return "\n\n".join(translations)
+
+
+def _split_local_text(text: str, max_len: int) -> list[str]:
+    """Bound each chunk, including long sentences without whitespace."""
+    chunks = []
+    while len(text) > max_len:
+        boundary = text.rfind("\n\n", 0, max_len)
+        if boundary > 0:
+            boundary += 2
+        else:
+            boundary = text.rfind(" ", 0, max_len) + 1
+        boundary = boundary or max_len
+        chunks.append(text[:boundary])
+        text = text[boundary:]
+    if text:
+        chunks.append(text)
+    return chunks
 
 
 def google_translate(text: str, source: str, target: str) -> str:
