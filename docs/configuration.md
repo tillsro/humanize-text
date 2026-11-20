@@ -12,8 +12,10 @@ Edit `config/config.toml` with your API keys.
 
 For a fully local setup, use [the Ollama configuration](ollama.md). Set both
 `[llm].provider = "ollama"` and `[translation].provider = "ollama"` to run all four
-steps locally without API keys. The LLM and translation models are configured
+steps locally without API keys. The LLM and each translation stage are configured
 separately in [config.ollama.example.toml](../config/config.ollama.example.toml).
+That example uses TranslateGemma for Japanese → Finnish and EuroLLM 22B Instruct
+for Finnish → English. Start with an English draft to receive English output.
 
 ### LLM Provider (Steps 1-2)
 
@@ -132,6 +134,14 @@ provider = "google_niutrans" # Or "ollama" for BOTH translation hops
 # base_url = "http://localhost:11434/v1"
 # timeout = 600
 # max_chunk_chars = 1000
+
+# Optional per-stage overrides when translation.provider = "ollama":
+# [translation.step3]
+# model = "translategemma:27b"
+# prompt_style = "translategemma"
+# [translation.step4]
+# model = "hf.co/bartowski/utter-project_EuroLLM-22B-Instruct-2512-GGUF:Q4_K_M"
+# prompt_style = "plain"
 ```
 
 ## Environment Variable Overrides

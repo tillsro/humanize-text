@@ -97,8 +97,11 @@ def test_local_cli_runs_all_four_steps_without_cloud_calls(monkeypatch, local_co
     assert [step["output"] for step in trace["steps"]] == outputs
     assert all("Ollama" in step["engine"] for step in trace["steps"])
     assert [req["model"] for req in requests] == [
-        "qwen3.8:27b", "qwen3.8:27b", "translategemma:27b", "translategemma:27b",
+        "qwen3.8:27b", "qwen3.8:27b", "translategemma:27b",
+        "hf.co/bartowski/utter-project_EuroLLM-22B-Instruct-2512-GGUF:Q4_K_M",
     ]
+    assert trace["steps"][2]["engine"] == "Ollama (translategemma:27b)"
+    assert "EuroLLM-22B-Instruct-2512-GGUF:Q4_K_M" in trace["steps"][3]["engine"]
     assert requests[1]["messages"][2] == {"role": "assistant", "content": outputs[0]}
     for request, source, target, text in (
         (requests[2], "Japanese (ja)", "Finnish (fi)", outputs[1]),
@@ -111,6 +114,12 @@ def test_local_cli_runs_all_four_steps_without_cloud_calls(monkeypatch, local_co
         assert message["role"] == "user"
         assert source in message["content"] and target in message["content"]
         assert message["content"].endswith("\n\n\n" + text)
+    assert requests[2]["messages"][0]["content"].startswith(
+        "You are a professional Japanese (ja) to Finnish (fi) translator."
+    )
+    assert requests[3]["messages"][0]["content"].startswith(
+        "Translate the passage from Finnish (fi) into English (en)."
+    )
 
 
 def test_default_pipeline_keeps_google_and_niutrans(monkeypatch):
@@ -144,12 +153,17 @@ def test_default_pipeline_keeps_google_and_niutrans(monkeypatch):
     ("provider", "olama", "translation.provider"),
     ("max_chunk_chars", 0, "max_chunk_chars"),
     ("max_chunk_chars", True, "max_chunk_chars"),
-    ("timeout", -1, "translation.timeout"),
-    ("model", "", "translation.model"),
-    ("base_url", "", "translation.base_url"),
+    ("timeout", -1, "timeout"),
+    ("model", "", "model"),
+    ("base_url", "", "base_url"),
+    ("prompt_style", "unsupported", "prompt_style"),
 ])
 def test_bad_translation_config_fails_before_rewriting(monkeypatch, local_config, field, value, error):
-    local_config["translation"][field] = value
+    if field == "provider":
+        local_config["translation"][field] = value
+    else:
+        # Even a malformed final stage must fail before spending any inference.
+        local_config["translation"]["step4"][field] = value
     monkeypatch.setattr(pipeline, "llm_rewrite", _forbid_cloud)
     with pytest.raises(ValueError, match=error):
         pipeline.run_standard_pipeline("Input", local_config)
@@ -193,19 +207,23 @@ def test_incomplete_local_response_is_not_used(monkeypatch, content, reason, err
             translators.ollama_translate("Test", "fi", "en")
 
 
-def test_missing_local_model_fails_without_falling_back(monkeypatch, local_config):
+@pytest.mark.parametrize("missing_step", [1, 4])
+def test_missing_local_model_fails_without_falling_back(monkeypatch, local_config, missing_step):
     monkeypatch.setattr(pipeline, "google_translate", _forbid_cloud)
     monkeypatch.setattr(pipeline, "niutrans_translate", _forbid_cloud)
     requests = []
+    outputs = ["Chinese", "Japanese", "Finnish", "English"]
 
     def handler(request):
         requests.append(str(request.url))
-        return httpx.Response(404, json={"error": "model not found"})
+        if len(requests) == missing_step:
+            return httpx.Response(404, json={"error": "model not found"})
+        return _completion(outputs[len(requests) - 1])
 
     with _simulate_http(monkeypatch, handler):
         with pytest.raises(httpx.HTTPStatusError):
             pipeline.run_standard_pipeline("Test", local_config)
-    assert requests == ["http://localhost:11434/v1/chat/completions"]
+    assert requests == ["http://localhost:11434/v1/chat/completions"] * missing_step
 
 
 def test_local_llm_with_hosted_translation_still_requires_niutrans(local_config):
@@ -213,3 +231,47 @@ def test_local_llm_with_hosted_translation_still_requires_niutrans(local_config)
     config.pop("translation")
     with pytest.raises(ValueError, match="niutrans_api_key"):
         pipeline.run_standard_pipeline("Test", config)
+
+
+def test_legacy_shared_model_still_applies_to_both_translation_stages(monkeypatch, local_config):
+    local_config["translation"].pop("step3")
+    local_config["translation"].pop("step4")
+    local_config["translation"]["model"] = "translategemma:12b"
+    outputs = ["Chinese", "Japanese", "Finnish", "English"]
+    models = []
+
+    def handler(request):
+        models.append(json.loads(request.content)["model"])
+        return _completion(outputs[len(models) - 1])
+
+    with _simulate_http(monkeypatch, handler):
+        result = pipeline.run_standard_pipeline("Test", local_config)
+    assert result["result"] == "English"
+    assert models == ["qwen3.8:27b", "qwen3.8:27b", "translategemma:12b", "translategemma:12b"]
+
+
+def test_final_stage_overrides_connection_and_timeout(monkeypatch, local_config):
+    local_config["translation"]["step4"].update({
+        "base_url": "http://mac.local:11434/v1/", "timeout": 900,
+    })
+    requests = []
+    outputs = ["Chinese", "Japanese", "Finnish", "English"]
+
+    def handler(request):
+        requests.append(request)
+        return _completion(outputs[len(requests) - 1])
+
+    with _simulate_http(monkeypatch, handler):
+        pipeline.run_standard_pipeline("Test", local_config)
+    assert all(request.url.host == "localhost" for request in requests[:3])
+    assert str(requests[3].url) == "http://mac.local:11434/v1/chat/completions"
+    assert requests[3].extensions["timeout"]["read"] == 900
+    assert requests[2].extensions["timeout"]["read"] == 600
+
+
+@pytest.mark.parametrize("override", ["not a table", {"provider": "deepseek"}])
+def test_malformed_stage_overrides_fail_before_rewriting(monkeypatch, local_config, override):
+    local_config["translation"]["step4"] = override
+    monkeypatch.setattr(pipeline, "llm_rewrite", _forbid_cloud)
+    with pytest.raises(ValueError, match="translation.step4"):
+        pipeline.run_standard_pipeline("Test", local_config)

@@ -1,18 +1,21 @@
 # Run the complete pipeline locally with Ollama
 
-The Standard Pipeline can run all four steps on your Mac. A general multilingual
-model handles the two rewrites, and TranslateGemma replaces both translation
-services. The local configuration requires no API keys.
+The Standard Pipeline can run all four steps on your Mac. Start with an English
+draft and receive English output through this chain:
+English -> Chinese -> Japanese -> Finnish -> English.
+A general multilingual model handles the two rewrites. TranslateGemma replaces
+Google Translate, and EuroLLM replaces Niutrans. No API keys are required.
 
 | Step | Local model | Languages |
 | --- | --- | --- |
-| 1 | Qwen 3.8 27B | Input -> Chinese rewrite |
+| 1 | Qwen 3.8 27B | English -> Chinese rewrite |
 | 2 | Qwen 3.8 27B | Chinese -> Japanese rewrite, with history |
 | 3 | TranslateGemma 27B | Japanese -> Finnish translation |
-| 4 | TranslateGemma 27B | Finnish -> English translation |
+| 4 | EuroLLM 22B Instruct (Q4_K_M) | Finnish -> English translation |
 
-This keeps the original language chain. Using one local translation model changes
-the two-engine design, so results can differ from Google Translate and Niutrans.
+The local configuration uses different models for the two translation stages.
+This keeps the original language chain, but results can differ from Google
+Translate and Niutrans; matching their output quality has not been established.
 Check meaning and terminology on your own examples, especially Japanese -> Finnish.
 
 ## Mac setup
@@ -23,6 +26,8 @@ acceleration; Docker Desktop on macOS does not provide GPU passthrough.
 Use a current Ollama release with Qwen 3.8 support.
 
 In Terminal, clone this fork and install the Python package:
+If using the changes before the local-pipeline pull request is merged, add
+`--branch codex/ollama-local-pipeline` to the clone command.
 
 ```bash
 git clone https://github.com/tillsro/humanize-text.git
@@ -32,20 +37,25 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-Download the two local models:
+Download the three local models:
 
 ```bash
 ollama pull qwen3.8:27b
 ollama pull translategemma:27b
+ollama pull hf.co/bartowski/utter-project_EuroLLM-22B-Instruct-2512-GGUF:Q4_K_M
 ollama list
 ```
 
-The default quantized downloads are about 18 GB and 17 GB respectively. These are
-a starting point for a Mac with 64 GB of unified memory. Runtime use also includes
-context buffers, macOS, and other applications; speed has not been measured on
-your Mac. To reduce memory use, choose `qwen2.5:7b` for rewriting or
-`translategemma:12b` / `translategemma:4b` for translation. Download the chosen model
-and update its name in the configuration.
+The quantized downloads are about 18 GB (Qwen), 17 GB (TranslateGemma), and 13.7 GB
+(EuroLLM). The EuroLLM download is a community GGUF conversion of the official
+`utter-project/EuroLLM-22B-Instruct-2512` model, loaded locally by Ollama.
+These are starting points for a Mac with 64 GB of unified memory. The stages run
+sequentially. Runtime memory also includes context buffers, macOS, and other
+applications, so model file sizes do not guarantee all models can remain loaded
+at large contexts. Speed has not been measured on your Mac.
+To reduce memory use, choose `qwen2.5:7b` for rewriting or
+`translategemma:12b` / `translategemma:4b` for Step 3. Download the chosen model
+and update its name in the corresponding configuration section.
 
 Run directly with the supplied local configuration:
 
@@ -61,19 +71,31 @@ humanize-text --config config/config.ollama.example.toml --input draft.txt --out
 
 To make local mode your default, copy the example to `config/config.toml`, or edit
 an existing configuration so both `[llm].provider` and `[translation].provider` are
-`"ollama"`. Setting only the LLM provider still leaves the default Google/Niutrans
-translation stages enabled.
+`"ollama"` and copy the example's `[translation.step3]` and `[translation.step4]`
+tables to select the two different translation models. Setting only the LLM
+provider still leaves the default Google/Niutrans translation stages enabled.
 
 ## Configuration
 
 See [config/config.ollama.example.toml](../config/config.ollama.example.toml) for a
-complete configuration. The two model names are independent:
+complete configuration. The rewrite model and each translation model are independent:
 
 - `[llm].model` selects the rewrite model. Ollama defaults to `qwen3.8:27b`, even if
   the legacy `[pipeline].model` still names a cloud model.
-- `[translation].model` selects the translator and defaults to `translategemma:27b`.
-- Both `base_url` values default to `http://localhost:11434/v1`.
-- Both request timeouts default to 600 seconds for Ollama to allow for model loading.
+- `[translation.step3].model` selects TranslateGemma for Japanese -> Finnish.
+- `[translation.step4].model` selects EuroLLM for Finnish -> English. Use the full
+  `hf.co/bartowski/utter-project_EuroLLM-22B-Instruct-2512-GGUF:Q4_K_M` tag so it
+  matches the download command above.
+- `[translation]` holds shared connection and chunking settings. Optional
+  `[translation.step3]` and `[translation.step4]` tables override `model`,
+  `base_url`, `timeout`, `max_chunk_chars`, and `prompt_style` for each stage.
+  Existing single-model configurations with only `[translation].model` still
+  apply that model to both stages; the default remains `translategemma:27b`.
+- Step 3 uses `prompt_style = "translategemma"` for the documented TranslateGemma
+  prompt. Step 4 uses `prompt_style = "plain"` for translation-only instructions
+  suitable for the EuroLLM instruction model. `plain` is the compatibility default.
+- All `base_url` values default to `http://localhost:11434/v1`.
+- Request timeouts default to 600 seconds for Ollama to allow for model loading.
 - `translation.max_chunk_chars` defaults to 1000. Longer passages are split into
   bounded chunks; translated chunks are separated by blank lines. Chunking can
   change paragraph breaks and lose context between chunks. The rewrite stages
@@ -83,7 +105,8 @@ complete configuration. The two model names are independent:
 
 The existing `LLM_PROVIDER`, `LLM_MODEL`, `LLM_BASE_URL`, and `LLM_API_KEY` environment
 variables still override the `[llm]` settings. Clear old cloud overrides when
-switching to local mode. Translation settings are taken from `[translation]`.
+switching to local mode. Translation settings are taken from `[translation]` and
+its stage overrides.
 Ollama requests bypass environment-configured HTTP proxies. Failed local requests
 raise an error; the app does not fall back to a cloud provider.
 
@@ -112,5 +135,7 @@ performance require testing on the machine that runs Ollama.
 
 - [TranslateGemma models and translation prompt guidance](https://ollama.com/library/translategemma)
 - [Qwen 3.8 27B](https://ollama.com/library/qwen3.8:27b)
+- [Official EuroLLM 22B Instruct model](https://huggingface.co/utter-project/EuroLLM-22B-Instruct-2512)
+- [EuroLLM GGUF conversion, download sizes, and Ollama instructions](https://huggingface.co/bartowski/utter-project_EuroLLM-22B-Instruct-2512-GGUF)
 - [Ollama's OpenAI-compatible local API](https://docs.ollama.com/api/openai-compatibility)
 - [Ollama local FAQ, cloud settings, and macOS GPU notes](https://docs.ollama.com/faq)

@@ -23,16 +23,19 @@ def ollama_translate(
     base_url: str = OLLAMA_BASE_URL,
     timeout: int = 600,
     max_chunk_chars: int = 1000,
+    prompt_style: str = "plain",
 ) -> str:
     """Translate locally using one user message per bounded text chunk.
 
-    TranslateGemma is a translation model, so it receives translation-only
-    instructions without rewrite history or a separate system message.
+    Each model receives translation-only instructions without rewrite history
+    or a separate system message. TranslateGemma has its own prompt profile.
     """
     if source not in LANGUAGE_NAMES or target not in LANGUAGE_NAMES:
         raise ValueError(f"Unsupported local translation language: {source!r} -> {target!r}")
     if isinstance(max_chunk_chars, bool) or not isinstance(max_chunk_chars, int) or max_chunk_chars < 1:
         raise ValueError("translation.max_chunk_chars must be a positive integer.")
+    if prompt_style not in {"plain", "translategemma"}:
+        raise ValueError("translation.prompt_style must be 'plain' or 'translategemma'.")
     if not text.strip():
         return text
 
@@ -42,13 +45,27 @@ def ollama_translate(
         if not chunk.strip():
             translations.append(chunk)
             continue
-        prompt = (
-            f"Translate the passage from {source_name} ({source}) into "
-            f"{target_name} ({target}).\n"
-            "Keep its meaning, names, numbers, and paragraph structure. "
-            "Return the translated passage alone, without commentary:\n\n\n"
-            f"{chunk}"
-        )
+        if prompt_style == "translategemma":
+            # Use the prompt recommended for TranslateGemma training/inference.
+            # https://ollama.com/library/translategemma
+            prompt = (
+                f"You are a professional {source_name} ({source}) to "
+                f"{target_name} ({target}) translator. Your goal is to accurately "
+                f"convey the meaning and nuances of the original {source_name} "
+                f"text while adhering to {target_name} grammar, vocabulary, and "
+                "cultural sensitivities.\n"
+                f"Produce only the {target_name} translation, without any "
+                "additional explanations or commentary. Please translate the "
+                f"following {source_name} text into {target_name}:\n\n\n{chunk}"
+            )
+        else:
+            prompt = (
+                f"Translate the passage from {source_name} ({source}) into "
+                f"{target_name} ({target}).\n"
+                "Keep its meaning, names, numbers, and paragraph structure. "
+                "Return the translated passage alone, without commentary:\n\n\n"
+                f"{chunk}"
+            )
         translations.append(chat_completions(
             [{"role": "user", "content": prompt}],
             api_key="", base_url=base_url, model=model,

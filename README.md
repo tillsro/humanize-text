@@ -61,19 +61,21 @@ python -m src.standard.pipeline --input "Your AI-generated text here"
 
 ### Fully local with Ollama
 
-Run the complete four-step chain on your Mac using a local rewrite model and
-TranslateGemma for both translation stages. No API keys are required:
+Run the complete four-step chain on your Mac using Qwen for rewriting,
+TranslateGemma for Japanese → Finnish, and EuroLLM for Finnish → English.
+Start with an English draft to receive English output. No API keys are required:
 
 ```bash
 python -m pip install -e .
 ollama pull qwen3.8:27b
 ollama pull translategemma:27b
+ollama pull hf.co/bartowski/utter-project_EuroLLM-22B-Instruct-2512-GGUF:Q4_K_M
 humanize-text --config config/config.ollama.example.toml --input "Your text here" --verbose
 ```
 
-The example uses Qwen 3.8 27B for rewriting and TranslateGemma 27B to replace both
-Google Translate and Niutrans. See the [Mac setup guide](docs/ollama.md) for smaller
-models, configuration, and offline use.
+The example uses Qwen 3.8 27B for rewriting, TranslateGemma 27B to replace Google
+Translate, and EuroLLM 22B Instruct to replace Niutrans. See the
+[Mac setup guide](docs/ollama.md) for model downloads, configuration, and offline use.
 
 > Don't want to set up keys? Try the hosted version at **[lynote.ai](https://lynote.ai/ai-humanizer?utm_source=github&utm_medium=readme&utm_campaign=humanize-text&utm_content=quickstart)** — paste and go.
 
@@ -100,8 +102,9 @@ The open pipeline combines two LLM rewrites with two machine-translation hops ac
 | 4 | Niutrans | Finnish → English | Second hop — cross-engine reconstruction |
 
 With the [Ollama configuration](config/config.ollama.example.toml), Steps 1–2 use a
-local rewrite model and Steps 3–4 both use local TranslateGemma. This preserves the
-language sequence; outputs can differ from the default two-engine pipeline.
+local rewrite model, Step 3 uses TranslateGemma, and Step 4 uses EuroLLM. Each
+translation stage has independent model settings. This preserves the language
+sequence; outputs can differ from the default two-engine pipeline.
 
 **Why this chain works**
 

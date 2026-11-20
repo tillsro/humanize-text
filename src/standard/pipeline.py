@@ -21,6 +21,24 @@ from .llm_client import resolve_llm_config
 from .translators import LANGUAGE_NAMES, google_translate, niutrans_translate, ollama_translate
 from .llm_rewriter import llm_rewrite
 
+TRANSLATION_OPTION_KEYS = {
+    "model", "base_url", "timeout", "max_chunk_chars", "prompt_style",
+}
+
+
+def _translation_options(config: dict, step: int) -> dict:
+    """Apply step-specific settings over the shared translation settings."""
+    translation = config.get("translation", {})
+    overrides = translation.get(f"step{step}", {})
+    if not isinstance(overrides, dict):
+        raise ValueError(f"translation.step{step} must be a TOML table")
+    unknown = overrides.keys() - TRANSLATION_OPTION_KEYS
+    if unknown:
+        raise ValueError(f"Unknown translation.step{step} settings: {', '.join(sorted(unknown))}")
+    options = {key: translation[key] for key in TRANSLATION_OPTION_KEYS if key in translation}
+    options.update(overrides)
+    return options
+
 
 def _validate_pipeline_config(config: dict, target_lang: str = "en") -> None:
     """Pre-flight check: validate required config before any API calls.
@@ -54,17 +72,26 @@ def _validate_pipeline_config(config: dict, target_lang: str = "en") -> None:
     if translation_provider == "ollama":
         if target_lang not in known_codes:
             errors.append(f"Unsupported local target language: {target_lang!r}")
-        max_chars = translation.get("max_chunk_chars", 1000)
-        if isinstance(max_chars, bool) or not isinstance(max_chars, int) or max_chars < 1:
-            errors.append("translation.max_chunk_chars must be a positive integer")
-        timeout = translation.get("timeout", 600)
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout < float("inf"):
-            errors.append("translation.timeout must be a positive number of seconds")
-        for field in ("model", "base_url"):
-            if field in translation and (
-                not isinstance(translation[field], str) or not translation[field].strip()
-            ):
-                errors.append(f"translation.{field} must be a nonempty string")
+        for step in (3, 4):
+            try:
+                options = _translation_options(config, step)
+            except ValueError as exc:
+                errors.append(str(exc))
+                continue
+            prefix = f"translation.step{step}"
+            max_chars = options.get("max_chunk_chars", 1000)
+            if isinstance(max_chars, bool) or not isinstance(max_chars, int) or max_chars < 1:
+                errors.append(f"{prefix}.max_chunk_chars must be a positive integer")
+            timeout = options.get("timeout", 600)
+            if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout < float("inf"):
+                errors.append(f"{prefix}.timeout must be a positive number of seconds")
+            for field in ("model", "base_url"):
+                if field in options and (
+                    not isinstance(options[field], str) or not options[field].strip()
+                ):
+                    errors.append(f"{prefix}.{field} must be a nonempty string")
+            if options.get("prompt_style", "plain") not in {"plain", "translategemma"}:
+                errors.append(f"{prefix}.prompt_style must be 'plain' or 'translategemma'")
 
     if errors:
         raise ValueError(
@@ -90,12 +117,9 @@ def run_standard_pipeline(text: str, config: dict, target_lang: str = "en") -> d
     _validate_pipeline_config(config, target_lang)
     translation = config.get("translation", {})
     local_translation = translation.get("provider", "google_niutrans") == "ollama"
-    # Collect local translation settings before any rewrite requests.
-    translation_options = {
-        key: translation[key]
-        for key in ("model", "base_url", "timeout", "max_chunk_chars")
-        if key in translation
-    }
+    # Resolve both stages before any rewrite requests.
+    step3_options = _translation_options(config, 3) if local_translation else {}
+    step4_options = _translation_options(config, 4) if local_translation else {}
     intermediate_lang = config.get("pipeline", {}).get("intermediate_lang", "fi")
     engine_name = llm["display_name"]
 
@@ -142,8 +166,8 @@ def run_standard_pipeline(text: str, config: dict, target_lang: str = "en") -> d
 
     # Step 3: Japanese → intermediate language (first translation hop)
     if local_translation:
-        step3 = ollama_translate(step2, source="ja", target=intermediate_lang, **translation_options)
-        translation_engine = f"Ollama ({translation_options.get('model', 'translategemma:27b')})"
+        step3 = ollama_translate(step2, source="ja", target=intermediate_lang, **step3_options)
+        translation_engine = f"Ollama ({step3_options.get('model', 'translategemma:27b')})"
     else:
         step3 = google_translate(step2, source="ja", target=intermediate_lang)
         translation_engine = "Google"
@@ -155,7 +179,8 @@ def run_standard_pipeline(text: str, config: dict, target_lang: str = "en") -> d
 
     # Step 4: Intermediate language → target (second translation hop)
     if local_translation:
-        step4 = ollama_translate(step3, source=intermediate_lang, target=target_lang, **translation_options)
+        step4 = ollama_translate(step3, source=intermediate_lang, target=target_lang, **step4_options)
+        translation_engine = f"Ollama ({step4_options.get('model', 'translategemma:27b')})"
     else:
         step4 = niutrans_translate(
             step3,
