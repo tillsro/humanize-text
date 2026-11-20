@@ -1,6 +1,6 @@
 # Run all four Standard Pipeline steps on your Mac using Ollama.
 # First download the models:
-#   ollama pull qwen2.5:14b
+#   ollama pull qwen3.8:27b
 #   ollama pull translategemma:27b
 # No API keys are required. See docs/ollama.md for setup and smaller models.
 
@@ -12,7 +12,7 @@ log_level = "info"
 # General multilingual model for the two humanizing rewrites.
 provider = "ollama"
 base_url = "http://localhost:11434/v1"
-model = "qwen2.5:14b"
+model = "qwen3.8:27b"
 temperature = 1.3
 timeout = 600
 

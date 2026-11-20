@@ -72,7 +72,7 @@ model = "deepseek/deepseek-chat"
 
 | Provider | Default `base_url` | Default `model` | Config key |
 |----------|-------------------|-----------------|------------|
-| `ollama` | `http://localhost:11434/v1` | `qwen2.5:14b` | None required |
+| `ollama` | `http://localhost:11434/v1` | `qwen3.8:27b` | None required |
 | `deepseek` | `https://api.deepseek.com` | `deepseek-chat` | `api_keys.deepseek_api_key` |
 | `openrouter` | `https://openrouter.ai/api/v1` | `deepseek/deepseek-chat` | `api_keys.openrouter_api_key` |
 | `atlascloud` | `https://api.atlascloud.ai/v1` | `qwen/qwen3.5-flash` | `api_keys.atlascloud_api_key` |

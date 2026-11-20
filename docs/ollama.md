@@ -6,8 +6,8 @@ services. The local configuration requires no API keys.
 
 | Step | Local model | Languages |
 | --- | --- | --- |
-| 1 | Qwen 2.5 14B | Input -> Chinese rewrite |
-| 2 | Qwen 2.5 14B | Chinese -> Japanese rewrite, with history |
+| 1 | Qwen 3.8 27B | Input -> Chinese rewrite |
+| 2 | Qwen 3.8 27B | Chinese -> Japanese rewrite, with history |
 | 3 | TranslateGemma 27B | Japanese -> Finnish translation |
 | 4 | TranslateGemma 27B | Finnish -> English translation |
 
@@ -20,6 +20,7 @@ Check meaning and terminology on your own examples, especially Japanese -> Finni
 You need Python 3.10+ and the native [Ollama app](https://ollama.com/download/mac).
 Open Ollama before running the pipeline. Use native Ollama on macOS for GPU
 acceleration; Docker Desktop on macOS does not provide GPU passthrough.
+Use a current Ollama release with Qwen 3.8 support.
 
 In Terminal, clone this fork and install the Python package:
 
@@ -34,12 +35,12 @@ python -m pip install -e .
 Download the two local models:
 
 ```bash
-ollama pull qwen2.5:14b
+ollama pull qwen3.8:27b
 ollama pull translategemma:27b
 ollama list
 ```
 
-The default quantized downloads are about 9 GB and 17 GB respectively. These are
+The default quantized downloads are about 18 GB and 17 GB respectively. These are
 a starting point for a Mac with 64 GB of unified memory. Runtime use also includes
 context buffers, macOS, and other applications; speed has not been measured on
 your Mac. To reduce memory use, choose `qwen2.5:7b` for rewriting or
@@ -68,7 +69,7 @@ translation stages enabled.
 See [config/config.ollama.example.toml](../config/config.ollama.example.toml) for a
 complete configuration. The two model names are independent:
 
-- `[llm].model` selects the rewrite model. Ollama defaults to `qwen2.5:14b`, even if
+- `[llm].model` selects the rewrite model. Ollama defaults to `qwen3.8:27b`, even if
   the legacy `[pipeline].model` still names a cloud model.
 - `[translation].model` selects the translator and defaults to `translategemma:27b`.
 - Both `base_url` values default to `http://localhost:11434/v1`.
@@ -110,6 +111,6 @@ performance require testing on the machine that runs Ollama.
 ## References
 
 - [TranslateGemma models and translation prompt guidance](https://ollama.com/library/translategemma)
-- [Qwen 2.5 14B](https://ollama.com/library/qwen2.5:14b)
+- [Qwen 3.8 27B](https://ollama.com/library/qwen3.8:27b)
 - [Ollama's OpenAI-compatible local API](https://docs.ollama.com/api/openai-compatibility)
 - [Ollama local FAQ, cloud settings, and macOS GPU notes](https://docs.ollama.com/faq)

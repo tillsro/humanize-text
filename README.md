@@ -66,12 +66,12 @@ TranslateGemma for both translation stages. No API keys are required:
 
 ```bash
 python -m pip install -e .
-ollama pull qwen2.5:14b
+ollama pull qwen3.8:27b
 ollama pull translategemma:27b
 humanize-text --config config/config.ollama.example.toml --input "Your text here" --verbose
 ```
 
-The example uses Qwen 2.5 14B for rewriting and TranslateGemma 27B to replace both
+The example uses Qwen 3.8 27B for rewriting and TranslateGemma 27B to replace both
 Google Translate and Niutrans. See the [Mac setup guide](docs/ollama.md) for smaller
 models, configuration, and offline use.
 

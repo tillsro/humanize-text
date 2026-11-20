@@ -14,7 +14,7 @@ OLLAMA_BASE_URL = "http://localhost:11434/v1"
 PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
     "ollama": {
         "base_url": OLLAMA_BASE_URL,
-        "model": "qwen2.5:14b",
+        "model": "qwen3.8:27b",
         "api_key_field": "ollama_api_key",
         "display_name": "Ollama",
     },

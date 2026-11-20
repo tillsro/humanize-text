@@ -56,7 +56,7 @@ def test_ollama_needs_no_key_and_ignores_legacy_cloud_model():
         "pipeline": {"model": "deepseek-chat"},
     })
     assert resolved["base_url"] == "http://localhost:11434/v1"
-    assert resolved["model"] == "qwen2.5:14b"
+    assert resolved["model"] == "qwen3.8:27b"
     assert not resolved["api_key"]
     assert resolved["timeout"] == 600
 
@@ -97,7 +97,7 @@ def test_local_cli_runs_all_four_steps_without_cloud_calls(monkeypatch, local_co
     assert [step["output"] for step in trace["steps"]] == outputs
     assert all("Ollama" in step["engine"] for step in trace["steps"])
     assert [req["model"] for req in requests] == [
-        "qwen2.5:14b", "qwen2.5:14b", "translategemma:27b", "translategemma:27b",
+        "qwen3.8:27b", "qwen3.8:27b", "translategemma:27b", "translategemma:27b",
     ]
     assert requests[1]["messages"][2] == {"role": "assistant", "content": outputs[0]}
     for request, source, target, text in (
