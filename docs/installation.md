@@ -23,6 +23,10 @@ API available at `http://localhost:8000` (exposes the v1.0 methodology dispatche
 
 ## Option 3: Source Installation
 
+For a fully local Mac installation with Ollama and TranslateGemma, follow the
+[Ollama setup guide](ollama.md). It runs the entire Standard Pipeline without
+external translation services or API keys.
+
 ```bash
 git clone https://github.com/lynote-ai/humanize-text.git
 cd humanize-text
@@ -111,7 +115,9 @@ The Binoculars and RoBERTa models will be downloaded automatically from Hugging 
 
 Required VRAM: ~4GB for Binoculars + RoBERTa models.
 
-> The v1.5.1 Standard Pipeline does **not** require a GPU — it uses external APIs only (LLM provider, Google Translate, Niutrans).
+> The default Standard Pipeline uses external APIs and does not require a local
+> GPU. The [Ollama configuration](ollama.md) runs local models and benefits from
+> native GPU acceleration, including Apple Silicon.
 
 ---
 

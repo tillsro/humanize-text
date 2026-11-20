@@ -9,7 +9,15 @@ import httpx
 
 from .retry import retry_with_backoff
 
+OLLAMA_BASE_URL = "http://localhost:11434/v1"
+
 PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
+    "ollama": {
+        "base_url": OLLAMA_BASE_URL,
+        "model": "qwen3.8:27b",
+        "api_key_field": "ollama_api_key",
+        "display_name": "Ollama",
+    },
     "deepseek": {
         "base_url": "https://api.deepseek.com",
         "model": "deepseek-chat",
@@ -75,11 +83,17 @@ def resolve_llm_config(config: dict) -> dict[str, Any]:
     if env_base_url := os.environ.get("LLM_BASE_URL"):
         base_url = env_base_url
 
-    model = llm_cfg.get("model") or pipeline_cfg.get("model") or defaults["model"]
+    # The legacy pipeline.model usually names a cloud model (deepseek-chat).
+    # Switching to Ollama must select a local model instead of inheriting it.
+    legacy_model = pipeline_cfg.get("model") if provider != "ollama" else None
+    model = llm_cfg.get("model") or legacy_model or defaults["model"]
     if env_model := os.environ.get("LLM_MODEL"):
         model = env_model
 
     temperature = llm_cfg.get("temperature", pipeline_cfg.get("temperature", 1.3))
+    timeout = llm_cfg.get("timeout", 600 if provider == "ollama" else 120)
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout < float("inf"):
+        raise ValueError("llm.timeout must be a positive number of seconds.")
 
     api_key_field = defaults["api_key_field"]
     api_key = api_keys.get(api_key_field, "")
@@ -98,7 +112,7 @@ def resolve_llm_config(config: dict) -> dict[str, Any]:
     elif provider == "orcarouter" and (or_key := os.environ.get("ORCAROUTER_API_KEY")):
         api_key = or_key
 
-    if not api_key and provider != "litellm":
+    if not api_key and provider not in {"litellm", "ollama"}:
         raise ValueError(
             f"Missing API key for provider {provider!r}. "
             f"Set api_keys.{api_key_field} in config or LLM_API_KEY env var."
@@ -116,6 +130,7 @@ def resolve_llm_config(config: dict) -> dict[str, Any]:
         "base_url": base_url,
         "model": model,
         "temperature": temperature,
+        "timeout": timeout,
         "api_key": api_key,
         "extra_headers": extra_headers or None,
     }
@@ -144,11 +159,11 @@ def chat_completions(
             timeout=timeout,
         )
 
-    if not api_key:
+    if not api_key and provider != "ollama":
         raise ValueError("API key is required for LLM chat completions.")
 
     url = normalize_chat_completions_url(base_url)
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     if extra_headers:
         headers.update(extra_headers)
 
@@ -156,14 +171,28 @@ def chat_completions(
         "model": model,
         "messages": messages,
         "temperature": temperature,
+        "stream": False,
     }
     if top_p is not None:
         payload["top_p"] = top_p
 
     def _call():
-        resp = httpx.post(url, headers=headers, json=payload, timeout=timeout)
+        resp = httpx.post(
+            url, headers=headers, json=payload, timeout=timeout,
+            # Keep local requests out of environment-configured HTTP proxies.
+            trust_env=provider != "ollama",
+        )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
+        choice = resp.json()["choices"][0]
+        if choice.get("finish_reason") == "length":
+            raise ValueError(
+                "Model response was truncated. Use shorter input or increase "
+                "the model's context/output limit."
+            )
+        content = choice["message"].get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("Model returned an empty text response.")
+        return content.strip()
 
     return retry_with_backoff(_call)
 
